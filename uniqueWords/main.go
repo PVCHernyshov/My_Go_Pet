@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -9,16 +10,17 @@ import (
 	"unicode"
 )
 
+const RETURN string = "return"
+const CONTINUE string = "continue"
+
 func main() {
-	flag := true
 
-	for flag {
+	for true {
 
-		fmt.Print("Введите текст или имя файла(для завершения ввода нажмите Ctrl+d): ")
-		resUsIn, errUsIn := userInput() // принимаем данные от пользователя
-
+		fmt.Print("\nВведите текст или имя файла(для завершения ввода нажмите дважды Ctrl+d): ")
+		resUsIn, errUsIn := userInput() // ввод от пользователя
 		if errUsIn != nil {
-			fmt.Println(errUsIn)
+			fmt.Println("Не удалось прочитать ввод. Ошибка:", errUsIn, "\n", "завершение программы.")
 			return
 		}
 
@@ -30,15 +32,32 @@ func main() {
 		}
 
 		if errReadFile != nil {
-			fmt.Println(errReadFile)
-			return
+
+			respons := handleError(errReadFile)
+
+			if respons == RETURN {
+				return
+			}
+			if respons == CONTINUE {
+				continue
+			}
+
 		}
 
 		resultClearData := clearData(resUsIn)
 
-		if resultClearData == "" {
-			fmt.Println("Получена пустая строка")
-			return
+		if strings.TrimSpace(resultClearData) == "" {
+
+			var emptyLine error = errors.New("Пустая строка")
+
+			respons := handleError(emptyLine)
+
+			if respons == RETURN {
+				return
+			}
+			if respons == CONTINUE {
+				continue
+			}
 		}
 
 		resultSortWords := sortingOfWords(resultClearData)
@@ -46,37 +65,46 @@ func main() {
 		if nameFile == "" {
 			nameFile = "nameless.txt"
 		}
+
 		errWriteFile := writeFile(nameFile, resUsIn, resultSortWords)
+
 		if errWriteFile != nil {
-			fmt.Println(errWriteFile)
-			return
+
+			respons := handleError(errWriteFile)
+
+			if respons == RETURN {
+				return
+			}
+			if respons == CONTINUE {
+				continue
+			}
+
 		}
 
-		menu := true
-		for menu {
-			fmt.Println("\nУникальные слова отделены.")
-			fmt.Println("Результат сохраннён в файле", nameFile, "Вывести на экран - п/p(принт/print).")
+		menuDisplays := true
+		for true {
+			if menuDisplays {
+				fmt.Println("\nРезультат обработки сохраннён в файле", nameFile, "Вывести на экран - п/p(принт/print).")
+			}
 			fmt.Println("Следующая сортировка с/n(следующая/next).")
-			fmt.Println("Выход - любой дрйгой символ.")
-			fmt.Print(": ")
+			fmt.Println("Выход - Ctrl+d: ")
 
-			resUsIn, errUsIn = userInput() // принимаем данные от пользователя
-
+			resUsIn, errUsIn = userInput()
 			if errUsIn != nil {
-				fmt.Println(errUsIn)
+				fmt.Println("Не удалось прочитать ввод. Ошибка:", errUsIn, "\n", "завершение программы.")
 				return
 			}
 
 			if strings.ToLower(resUsIn) == "п" || strings.ToLower(resUsIn) == "p" {
+				menuDisplays = false
 				for str := range resultSortWords {
 					fmt.Println(str)
 				}
 			} else if strings.ToLower(resUsIn) == "с" || strings.ToLower(resUsIn) == "n" {
 				fmt.Println()
-				menu = false
-				continue
+				break
 			} else {
-				flag, menu = false, false
+				fmt.Println()
 				return
 			}
 		}
@@ -100,7 +128,7 @@ func userInput() (string, error) {
 
 func textOrFile(s string) bool {
 
-	extension := []string{".txt", ".md", ".cvc", ".log"}
+	extension := []string{".txt", ".md", ".csv", ".log"}
 
 	for _, fileExtension := range extension {
 		if strings.HasSuffix(s, fileExtension) {
@@ -114,7 +142,7 @@ func readFile(f string) (string, error) {
 
 	file, err := os.Open(f)
 	if err != nil {
-		return "", fmt.Errorf("%s", err)
+		return "", err
 	}
 	defer file.Close()
 
@@ -172,10 +200,43 @@ func writeFile(f, ui string, m map[string]struct{}) error {
 
 func clearData(s string) string {
 	str := strings.Map(func(r rune) rune {
-		if unicode.IsPunct(r) {
+		if !unicode.IsLetter(r) {
 			return ' '
 		}
 		return unicode.ToLower(r)
 	}, s)
 	return str
+}
+
+func handleError(e error) string {
+	cycle := true
+	for true {
+		if cycle {
+			fmt.Println("\nПроизошла ошибка ", e)
+		}
+		fmt.Print("Повторить ввод/repeat enter (п/r + (Ctrl+d)) выход/exit (Ctrl+d): ")
+		resUsIn, errUsIn := userInput()
+
+		if errUsIn != nil {
+			fmt.Println("\nНе удалось прочитать ввод. Ошибка:", errUsIn, "\n", "завершение программы.")
+			return RETURN
+		}
+
+		if strings.ToLower(resUsIn) == "п" || strings.ToLower(resUsIn) == "r" {
+			return CONTINUE
+		}
+
+		if resUsIn != "" {
+			cycle = false
+			fmt.Println("\nОшибка ввода")
+			continue
+		}
+
+		if resUsIn == "" {
+			fmt.Println("\nДо новых встреч!")
+			return RETURN
+		}
+	}
+
+	return ""
 }
