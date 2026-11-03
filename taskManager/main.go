@@ -26,12 +26,13 @@ var errorPrint bool
 func main() {
 
 	var tasks []Task
-	fmt.Print("\033[H\033[2J\n")
 	var errRead error
 	errRead = readFile(&tasks)
 
 	if errRead != nil {
 		if os.IsNotExist(errRead) {
+			printError()
+		} else if errors.Is(errRead, io.EOF) {
 			printError()
 		} else {
 			fmt.Println(errRead)
@@ -53,7 +54,7 @@ func main() {
 
 		err := parsingUsIn(resUsIn, &tasks)
 		if errors.Is(err, exit) {
-			fmt.Println("Сохраняем и выходим.\nДо новых встреч!.\n")
+			fmt.Println("До новых встреч.\n")
 			return
 		}
 		if err != nil {
@@ -96,38 +97,26 @@ func heading(t time.Time) string {
 
 func readFile(t *[]Task) error {
 
-	_, err := os.Stat("tasks.json")
-	if err != nil {
-		return err
-	}
-
 	file, err := os.Open("tasks.json")
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	data, err := io.ReadAll(file)
+	err = json.NewDecoder(file).Decode(t)
 	if err != nil {
 		return err
 	}
 
-	if len(data) == 0 {
-		return nil
-	}
-	err = json.Unmarshal(data, t)
-	if err != nil {
-		return err
-	}
 	return nil
 }
 
 func menu() {
-	fmt.Println("Что бы добавить, введите: доб ДД.ММ.ГГГГ ЧЧ-ММ \"задача\"")
-	fmt.Println("Что бы удалить, введите: уд 3")
-	fmt.Println("Что бы изменить статус, введите: ст 3 выполнено")
+	fmt.Println("Что бы добавить, введите: добавить ДД.ММ.ГГГГ ЧЧ-ММ \"задача\"")
+	fmt.Println("Что бы удалить, введите: удалить №")
+	fmt.Println("Что бы изменить статус, введите: статус № \"новый статус\"")
 	fmt.Println("Что бы просмотреть список, введите: список")
-	fmt.Println("Что бы сохранить и выйти введите: вых")
+	fmt.Println("Что бы сохранить и выйти введите: выход")
 	fmt.Print(":: ")
 }
 
@@ -152,7 +141,7 @@ func parsingUsIn(s string, t *[]Task) error {
 
 	switch strings.ToLower(slice[0]) {
 
-	case "доб":
+	case "добавить":
 		if len(slice) < 3 {
 			invalidInput()
 			return nil
@@ -175,7 +164,7 @@ func parsingUsIn(s string, t *[]Task) error {
 			return err
 		}
 
-	case "уд":
+	case "удалить":
 		if len(slice) != 2 {
 			invalidInput()
 			return nil
@@ -195,7 +184,7 @@ func parsingUsIn(s string, t *[]Task) error {
 			return nil
 		}
 
-	case "ст":
+	case "статус":
 		if len(slice) < 3 {
 			invalidInput()
 			return nil
@@ -232,7 +221,7 @@ func parsingUsIn(s string, t *[]Task) error {
 		printTasks(*t)
 		fmt.Println()
 
-	case "вых":
+	case "выход":
 		return exit
 	default:
 		newMessage()
@@ -243,27 +232,29 @@ func parsingUsIn(s string, t *[]Task) error {
 
 func addTask(s []string, t *[]Task) error {
 
+	task, err := createTask(s, *t)
+	if err != nil {
+		return err
+	}
+
+	*t = append(*t, task)
+	newMessage()
+	fmt.Printf("\t\tДобавлена задача.\n\n\"%s\" на %s \n\n", task.Task, task.Date.Format("02.01.2006 15-04"))
+
+	sortTasks(*t)
+
+	return writeFile(t)
+}
+
+func parsingDataAddTask(s []string) (string, time.Time, error) {
 	strDate := strings.Join(s[1:3], " ")
 	task := strings.Join(s[3:], " ")
 	date, err := time.Parse("02.01.2006 15-04", strDate)
 	if err != nil {
-		return err
-	}
-	id := 0
-	findfreeID(&id, *t)
-	newTask := Task{ID: id, Date: date, Task: task, Status: false}
-	*t = append(*t, newTask)
-	newMessage()
-	fmt.Printf("\t\tДобавлена задача.\n\n\"%s\" на %s \n\n", task, date.Format("02.01.2006 15-04"))
-
-	sortTasks(*t)
-
-	err = writeFile(t)
-	if err != nil {
-		return err
+		return "", time.Time{}, err
 	}
 
-	return nil
+	return task, date, nil
 }
 
 func printError() {
@@ -298,46 +289,43 @@ func printTasks(t []Task) {
 		if (task.Date.Before(time.Now())) && !task.Status {
 			stat = "Просрочено."
 		}
-		fmt.Printf("ID %d: %s %s - %s\n", task.ID, task.Date.Format("02.01.2006 15-04"), task.Task, stat)
+		fmt.Printf("№ %d: %s %s - %s\n", task.ID, task.Date.Format("02.01.2006 15-04"), task.Task, stat)
 	}
 }
 
-func findfreeID(id *int, t []Task) {
-	for i := 1; i <= len(t)+1; i++ {
+func findfreeID(t []Task) int {
+	for id := 1; ; id++ {
 		flag := true
 		for _, task := range t {
-			if i == task.ID {
+			if id == task.ID {
 				flag = false
 				break
 			}
 		}
 		if flag {
-			*id = i
-			return
+			return id
 		}
 	}
 }
 
 func changeOfStatus(n int, s string, t *[]Task) error {
-	for j := range *t {
-		if n == (*t)[j].ID {
+	for e := range *t {
+		if n == (*t)[e].ID {
 			switch s {
 			case "выполнено":
-				(*t)[j].Status = true
-				newMessage()
-				fmt.Printf("\tСтатус задачи %s изменён на - Выполнено.\n\n", (*t)[j].Task)
+				(*t)[e].Status = true
+				s = "Выполнено"
 			case "не выполнено":
-				(*t)[j].Status = false
-				newMessage()
-				fmt.Printf("\tСтатус задачи %s изменён на - Не выполнено.\n\n", (*t)[j].Task)
+				(*t)[e].Status = false
+				s = "Не выполнено"
 			}
+			newMessage()
+			fmt.Printf("\tСтатус задачи %s изменён на - %s.\n\n", (*t)[e].Task, s)
+			return writeFile(t)
 		}
 	}
-	err := writeFile(t)
-	if err != nil {
-		return err
-	}
-	return nil
+
+	return fmt.Errorf("Ошибка изменения статуса. Статус не изменён.")
 }
 
 func checkID(id int, t []Task) error {
@@ -383,11 +371,24 @@ func deleteTask(n int, t *[]Task) error {
 
 func writeFile(t *[]Task) error {
 
-	b, err := json.Marshal(t)
+	file, err := os.Create("tasks.json")
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
-	os.WriteFile("tasks.json", b, 0644)
-	return nil
+	return json.NewEncoder(file).Encode(t)
+}
+
+func createTask(s []string, t []Task) (Task, error) {
+	task, date, err := parsingDataAddTask(s)
+	if err != nil {
+		return Task{}, err
+	}
+
+	id := findfreeID(t)
+
+	newTask := Task{ID: id, Date: date, Task: task, Status: false}
+	return newTask, nil
+
 }
