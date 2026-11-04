@@ -267,7 +267,7 @@ func printTasks(t []Task) {
 	timeNow := time.Now()
 	for _, task := range t {
 		if !task.Status {
-			stat = "Невыполнено"
+			stat = "Не выполнено"
 		} else {
 			stat = "Выполнено"
 		}
